@@ -1,0 +1,120 @@
+<html>
+
+<head>
+    <script src="/learn//node_modules/socket.io/client-dist/socket.io.min.js"></script>
+    <script src="/learn//node_modules/simple-peer/simplepeer.min.js"></script>
+    <style>
+        .container {
+            display: flex;
+        }
+
+        .col {
+            flex-direction: column;
+        }
+
+        .row {
+            flex-direction: row;
+        }
+
+        video {
+            border: 1rem red solid;
+        }
+
+        pre {
+            position: relative;
+            width: 40rem;
+            height: 15rem;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body class="container row">
+    <div class="col">
+        <h4 id="me"></h4>
+        <video id="sender" autoplay></video>
+    </div>
+    <script defer>
+        document.addEventListener('DOMContentLoaded', function () {
+            var serverIp = window.location.href.split('/')[1] + ':3000'
+            const socket = io(serverIp);
+            var myId;
+            socket.on('connect', function () {
+                socket.on('me', function (mySocketId) {
+                    myId = mySocketId;
+                    document.getElementById('me').innerText = "Me: (" + mySocketId + ")";
+                })
+                // get current user media stream
+                navigator.mediaDevices.getUserMedia({
+                    video: true,
+                }).then(function (stream) {
+                    document.getElementById("sender").srcObject = stream;
+                    socket.on('newUser', function (newUserId) {
+                        document.getElementById('sender').srcObject = stream;
+
+                        const senderPeer = new SimplePeer({
+                            initiator: true,
+                            trickle: false, // to use ICE server (make it true)
+                            stream,
+                            config: { iceServers: [{ urls: [] }] },
+                        });
+                        senderPeer.on('signal', signalData => {
+                            socket.emit("signal", { from: myId, to: newUserId, signalData });
+                        });
+                        senderPeer.on('stream', stream => {
+                            document.getElementById(vId).srcObject = stream;
+                        });
+                        socket.on('signal', function ({ from, to, signalData }) {
+                            if (from === newUserId && signalData.type == "answer") {
+                                senderPeer.signal(signalData);
+                                vId = 'receiver-' + from;
+                                var div = document.createElement('div');
+                                div.innerHTML = '<div id="'+from+'" class="col">' +
+                                    '<h4>User: (' + from + ')</h4>' +
+                                    '<video id="' + vId + '" autoplay></video>' +
+                                    '</div>';
+                                document.getElementsByTagName('body')[0].appendChild(div.firstChild);
+                            }
+                        })
+                    });
+
+                    socket.on('signal', function ({ from, to, signalData }) {
+                        if (to === myId && signalData.type == "offer") {
+
+                            var vId = 'receiver-' + from;
+                            var div = document.createElement('div');
+                            div.innerHTML = '<div id="'+from+'" class="col">' +
+                                '<h4>User: (' + from + ')</h4>' +
+                                '<video id="' + vId + '" autoplay></video>' +
+                                '</div>';
+                            document.getElementsByTagName('body')[0].appendChild(div.firstChild);
+
+                            const receiverPeer = new SimplePeer({
+                                initiator: false,
+                                trickle: false,
+                                stream,
+                                config: { iceServers: [{ urls: [] }] },
+                            });
+                            receiverPeer.on('signal', signalData => {
+                                socket.emit("signal", { from: myId, to: from, signalData });
+                            });
+                            receiverPeer.on('stream', stream => {
+                                document.getElementById(vId).srcObject = stream;
+                            });
+                            receiverPeer.signal(signalData);
+                        }
+                    });
+
+                    socket.on('userLeave', function (userId) {
+                        document.getElementById(userId).remove();
+                    })
+                });
+            })
+        }, false);
+    </script>
+</body>
+
+</html>
